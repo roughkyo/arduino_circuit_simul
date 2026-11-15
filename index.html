@@ -1,0 +1,1056 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<title>아두이노 우노 R4 · LED 회로 시뮬레이션</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  html, body { margin: 0; height: 100%; overflow: hidden; }
+  body {
+    background: radial-gradient(ellipse at 50% 45%, #10222c 0%, #071015 55%, #030507 100%);
+    color: #e8eef2;
+    font-family: 'Pretendard', 'Malgun Gothic', 'Apple SD Gothic Neo', sans-serif;
+  }
+  canvas#gl { position: fixed; left: 0; top: 0; width: 100vw; height: 100vh; display: block; }
+
+  /* 좌상단 정보 패널 */
+  #panel {
+    position: fixed; left: 18px; top: 16px; width: 300px;
+    background: rgba(8, 16, 22, 0.72); border: 1px solid rgba(255,255,255,0.09);
+    border-radius: 10px; padding: 12px 14px 10px; backdrop-filter: blur(4px);
+  }
+  #panel .kicker { font-size: 11px; color: #7f97a6; letter-spacing: 0.04em; }
+  #panel h1 { font-size: 17px; margin: 3px 0 6px; font-weight: 700; }
+  #panel p { font-size: 12.5px; line-height: 1.55; margin: 0 0 8px; color: #c5d2da; min-height: 58px; }
+  #graph { width: 100%; height: 120px; display: block; }
+  #panel .row { display: flex; justify-content: space-between; font-size: 11.5px; color: #9fb2be; margin-top: 6px; }
+  #panel .row b { color: #ffe45c; font-weight: 700; }
+  .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 4px; vertical-align: 0; }
+
+  /* 하단 버튼 줄 (오른쪽 아래는 발표자 영상 자리라 비워 둠) */
+  #bar {
+    position: fixed; left: 44%; bottom: 14px; transform: translateX(-50%);
+    display: flex; gap: 6px; align-items: center; white-space: nowrap;
+  }
+  #bar button {
+    font: inherit; font-size: 12px; color: #dfe8ee; cursor: pointer;
+    background: rgba(22,32,40,0.88); border: 1px solid rgba(255,255,255,0.14);
+    border-radius: 6px; padding: 5px 10px;
+  }
+  #bar button:hover { background: rgba(48,62,72,0.95); }
+  #bar button.on { background: #d93a4a; border-color: #d93a4a; color: #fff; }
+  #bar .seg { display: flex; }
+  #bar .seg button { border-radius: 0; margin-left: -1px; }
+  #bar .seg button:first-child { border-radius: 6px 0 0 6px; margin-left: 0; }
+  #bar .seg button:last-child { border-radius: 0 6px 6px 0; }
+  #bar label { font-size: 11px; color: #8ea2ae; display: flex; align-items: center; gap: 5px; }
+  #bar input[type=range] { width: 80px; accent-color: #d93a4a; }
+  #bar .gap { width: 8px; }
+
+  /* 3D 위치에 붙는 글자 */
+  .tag {
+    position: fixed; left: 0; top: 0; pointer-events: none; display: none;
+    font-size: 12px; font-weight: 700; padding: 2px 7px; border-radius: 5px;
+    background: rgba(5, 10, 14, 0.78); border: 1px solid rgba(255,255,255,0.14);
+    transform: translate(-50%, -50%); white-space: nowrap;
+  }
+  .tag.v5 { color: #ff6b6b; } .tag.v2 { color: #ffb347; } .tag.v0 { color: #6aa8ff; }
+  .tag.drop { color: #ffe45c; font-size: 13px; }
+
+  #tip {
+    position: fixed; display: none; pointer-events: none; max-width: 240px;
+    background: rgba(5, 10, 14, 0.9); border: 1px solid rgba(255,255,255,0.16);
+    border-radius: 7px; padding: 7px 10px; font-size: 12px; line-height: 1.5; color: #c5d2da;
+  }
+  #tip b { display: block; color: #fff; font-size: 13px; margin-bottom: 2px; }
+  #note { position: fixed; right: 18px; top: 16px; width: 230px; text-align: right; font-size: 10.5px; line-height: 1.5; color: #5f7482; }
+</style>
+</head>
+<body>
+<canvas id="gl"></canvas>
+
+<div id="panel">
+  <div class="kicker">아두이노 우노 R4 WiFi · LED 회로 &nbsp;<span id="stepNo"></span></div>
+  <h1 id="stepT"></h1>
+  <p id="stepD"></p>
+  <canvas id="graph" width="544" height="240"></canvas>
+  <div class="row">
+    <span><span class="dot" style="background:#7fd4ff"></span>전자(−) &nbsp; <span style="color:#ffd84a">▶</span> 전류</span>
+    <span>전류 <b>13.6 mA</b> (어디서나 같음)</span>
+  </div>
+</div>
+
+<div id="bar">
+  <button id="bPrev">◀ 이전</button>
+  <button id="bNext">다음 ▶</button>
+  <span class="gap"></span>
+  <button id="bSee">속 보기</button>
+  <button id="bExp">분해하기</button>
+  <span class="gap"></span>
+  <span class="seg">
+    <button data-flow="current">전류</button>
+    <button data-flow="electron">전자</button>
+    <button data-flow="both">둘 다</button>
+  </span>
+  <button id="bVolt">전압 보기</button>
+  <label>속도 <input id="speed" type="range" min="0" max="3" step="0.1" value="1"></label>
+</div>
+
+<div id="tip"></div>
+<div id="note">이해를 돕기 위해 전자의 움직임을 과장해 표현했습니다. 실제 전자는 1초에 1mm도 움직이지 않습니다.</div>
+
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/build/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+<script>
+// ───────────────────────── 기본 장면 ─────────────────────────
+const renderer = new THREE.WebGLRenderer({ canvas: document.getElementById('gl'), antialias: true, alpha: true });
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+const scene = new THREE.Scene();
+const camera = new THREE.PerspectiveCamera(36, 16 / 9, 0.5, 400);
+const controls = new THREE.OrbitControls(camera, renderer.domElement);
+controls.enableDamping = true;
+controls.maxPolarAngle = Math.PI * 0.49;
+
+scene.add(new THREE.AmbientLight(0xffffff, 0.32));
+// 금속이 주변을 비추도록 간단한 반사 환경(위는 밝고 아래는 어두운 스튜디오)을 만든다
+{
+  const envTex = makeTextTexture(512, 256, (c) => {
+    const g = c.createLinearGradient(0, 0, 0, 256);
+    g.addColorStop(0, '#f2f6fa'); g.addColorStop(0.45, '#6f7f8c'); g.addColorStop(0.55, '#27313a'); g.addColorStop(1, '#06090c');
+    c.fillStyle = g; c.fillRect(0, 0, 512, 256);
+    c.fillStyle = '#ffffff'; c.fillRect(60, 18, 110, 46); c.fillRect(300, 26, 150, 40);
+  });
+  envTex.mapping = THREE.EquirectangularReflectionMapping;
+  scene.environment = new THREE.PMREMGenerator(renderer).fromEquirectangular(envTex).texture;
+}
+const sun = new THREE.DirectionalLight(0xffffff, 0.75);
+sun.position.set(-20, 60, 40);
+scene.add(sun);
+const fill = new THREE.DirectionalLight(0x88bbff, 0.25);
+fill.position.set(30, 20, -40);
+scene.add(fill);
+
+const v3 = (a) => new THREE.Vector3(a[0], a[1], a[2]);
+const VOLT_COLOR = { 5: 0xff3b3b, 2: 0xff9f1a, 0: 0x2f7bff };
+
+// ───────────────────────── 재질 관리 ─────────────────────────
+// 모든 겉면 재질을 등록해 두고, 속 보기에서 투명도를 한꺼번에 바꾼다
+const shells = [];
+function M(color, o = {}) {
+  const m = new THREE.MeshStandardMaterial({
+    color, roughness: o.r ?? 0.6, metalness: o.metal ?? 0,
+    emissive: o.em ?? 0x000000, emissiveIntensity: o.ei ?? 1,
+    opacity: o.op ?? 1, map: o.map ?? null,
+  });
+  shells.push({ m, see: o.see ?? 0.22, base: o.op ?? 1, volt: o.volt,
+    col: new THREE.Color(color), em: new THREE.Color(o.em ?? 0x000000), ei: o.ei ?? 1 });
+  return m;
+}
+
+// ───────────────────────── 부품 그룹 ─────────────────────────
+// 각 그룹은 분해 보기에서 움직일 거리(off)와 이름표를 가진다
+const parts = {};
+function part(key, name, desc, off) {
+  const g = new THREE.Group();
+  g.userData = { info: { n: name, d: desc }, off: v3(off) };
+  scene.add(g);
+  parts[key] = g;
+  return g;
+}
+const pickables = [];
+function add(g, mesh, info) {
+  mesh.userData.info = info || g.userData.info;
+  g.add(mesh);
+  pickables.push(mesh);
+  return mesh;
+}
+function box(g, size, pos, mat, info) {
+  const m = new THREE.Mesh(new THREE.BoxGeometry(size[0], size[1], size[2]), mat);
+  m.position.set(pos[0], pos[1], pos[2]);
+  return add(g, m, info);
+}
+// 두 점을 잇는 원기둥(다리, 핀)
+function rod(g, a, b, r, mat, info) {
+  const A = v3(a), B = v3(b), d = B.clone().sub(A);
+  const m = new THREE.Mesh(new THREE.CylinderGeometry(r, r, d.length(), 12), mat);
+  m.position.copy(A).add(B).multiplyScalar(0.5);
+  m.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), d.normalize());
+  return add(g, m, info);
+}
+function ball(g, p, r, mat, info) {
+  const m = new THREE.Mesh(new THREE.SphereGeometry(r, 12, 10), mat);
+  m.position.set(p[0], p[1], p[2]);
+  return add(g, m, info);
+}
+
+// 브레드보드 좌표: 구멍 간격 = 1, 5번 줄 x=7.5, 6번 줄 x=8.5, 10번 줄 x=12.5
+// 아래쪽 구역 E행 z=2, D행 z=3, A행 z=6. 내부 클립 높이 y=2.2
+const X5 = 7.5, X6 = 8.5, X10 = 12.5, ZE = 2, ZD = 3, ZA = 6, CY = 2.2;
+
+// ───────────────────────── 아두이노 보드 ─────────────────────────
+function makeTextTexture(w, h, draw) {
+  const c = document.createElement('canvas');
+  c.width = w; c.height = h;
+  draw(c.getContext('2d'));
+  const t = new THREE.CanvasTexture(c);
+  t.anisotropy = renderer.capabilities.getMaxAnisotropy();
+  return t;
+}
+function flatPlane(g, w, d, pos, mat) {
+  const m = new THREE.Mesh(new THREE.PlaneGeometry(w, d), mat);
+  m.rotation.x = -Math.PI / 2;
+  m.position.set(pos[0], pos[1], pos[2]);
+  g.add(m);
+  return m;
+}
+
+// LED 빛 번짐
+const glowTex = makeTextTexture(128, 128, (c) => {
+  const g = c.createRadialGradient(64, 64, 0, 64, 64, 64);
+  g.addColorStop(0, 'rgba(255,255,255,1)');
+  g.addColorStop(0.25, 'rgba(255,255,255,0.45)');
+  g.addColorStop(1, 'rgba(255,255,255,0)');
+  c.fillStyle = g; c.fillRect(0, 0, 128, 128);
+});
+function glowSprite(color, size) {
+  const s = new THREE.Sprite(new THREE.SpriteMaterial({ map: glowTex, color, blending: THREE.AdditiveBlending, depthWrite: false, transparent: true }));
+  s.scale.set(size, size, 1);
+  return s;
+}
+// 보드 좌표(bx: 왼쪽→오른쪽 0~27, bz: 디지털 헤더 쪽→전원 헤더 쪽 0~21, 단위 2.54mm)를 화면 좌표로 바꿈
+const BX = (x) => -35.5 + x, BZ = (z) => -10.5 + z, PCB_Y = 0.8;
+const P5 = BX(15), PG = BX(16);          // 5V 핀, GND 핀의 x 위치(실제 우노 핀 배열 기준)
+const board = part('board', '아두이노 우노 R4 WiFi',
+  'USB로 전원을 받아 5V 핀으로 내보내는 보드입니다. 이 회로에서는 건전지 같은 전원 역할만 합니다.', [-6, 0, 0]);
+const bbox = (size, x, y, z, mat, info) => box(board, size, [BX(x), PCB_Y + y, BZ(z)], mat, info);
+let seed = 7;
+const rnd = () => { seed = (seed * 16807) % 2147483647; return seed / 2147483647; };
+// 같은 모양을 여러 개 찍는 도우미. list 항목: [x, y, z, y축 회전]
+function instanced(g, geo, mat, list) {
+  const im = new THREE.InstancedMesh(geo, mat, list.length);
+  const mm = new THREE.Matrix4(), q = new THREE.Quaternion(), one = new THREE.Vector3(1, 1, 1), ay = new THREE.Vector3(0, 1, 0);
+  list.forEach((it, i) => {
+    q.setFromAxisAngle(ay, it[3] || 0);
+    mm.compose(new THREE.Vector3(it[0], it[1], it[2]), q, one);
+    im.setMatrixAt(i, mm);
+  });
+  g.add(im);
+  return im;
+}
+// 부품 윗면에 글자·무늬를 입히는 판
+function topLabel(g, w, d, pos, draw, opt) {
+  const tex = makeTextTexture(Math.round(w * 80), Math.round(d * 80), draw);
+  return flatPlane(g, w, d, pos, M(0xffffff, Object.assign({ map: tex, see: 0.3, r: 0.5 }, opt || {})));
+}
+
+// 실제 우노 외곽선(오른쪽 모서리 꺾임)과 고정 구멍 4개
+const OUTLINE = [[0, 21], [0, 0], [25.4, 0], [26, 0.6], [26, 5.1], [27, 6.1], [27, 19], [26, 20], [26, 21]];
+const HOLES = [[5.51, 20], [6, 1], [26, 18], [26, 7]];
+{
+  const sh = new THREE.Shape();
+  OUTLINE.forEach(([x, z], i) => { if (i) sh.lineTo(x, 21 - z); else sh.moveTo(x, 21 - z); });
+  HOLES.forEach(([x, z]) => {
+    const h = new THREE.Path();
+    h.absarc(x, 21 - z, 0.63, 0, Math.PI * 2, true);
+    sh.holes.push(h);
+  });
+  const pcb = new THREE.Mesh(new THREE.ExtrudeGeometry(sh, { depth: 0.6, bevelEnabled: false, curveSegments: 24 }),
+    M(0x0f3a73, { r: 0.4, see: 0.3 }));
+  pcb.rotation.x = -Math.PI / 2;
+  pcb.position.set(-35.5, 0.2, 10.5);
+  add(board, pcb);
+}
+// 기판 윗면: 배선 무늬 + 흰색 실크 인쇄
+{
+  const S = 80, px = (v) => v * S;
+  const tex = makeTextTexture(27 * S, 21 * S, (c) => {
+    c.beginPath();
+    OUTLINE.forEach(([x, z], i) => { if (i) c.lineTo(px(x), px(z)); else c.moveTo(px(x), px(z)); });
+    c.closePath();
+    HOLES.forEach(([x, z]) => { c.moveTo(px(x) + px(0.63), px(z)); c.arc(px(x), px(z), px(0.63), 0, Math.PI * 2); });
+    c.fillStyle = '#0b2c5e';
+    c.fill('evenodd');
+    c.clip('evenodd');
+    // 구리 배선과 비아(장식)
+    const tr = (pts) => { c.beginPath(); pts.forEach(([x, z], i) => { if (i) c.lineTo(px(x), px(z)); else c.moveTo(px(x), px(z)); }); c.stroke(); };
+    c.strokeStyle = '#12417f'; c.lineWidth = 3;
+    for (let i = 0; i < 8; i++) tr([[18 + i, 1.6], [18 + i, 4.3], [17.9 + i * 0.42, 4.9], [17.9 + i * 0.42, 5.4]]);
+    for (let i = 0; i < 6; i++) tr([[9.2, 9.0 + i * 0.3], [9.9, 9.0 + i * 0.3], [10.6, 9.7 + i * 0.3], [11.6, 9.7 + i * 0.3]]);
+    for (let i = 0; i < 6; i++) tr([[20 + i, 19.4], [20 + i, 18.6 - i * 0.05], [21.9 + i * 0.1, 16.9], [21.9 + i * 0.1, 9.4 - i * 0.25], [21.6, 9.1 - i * 0.25]]);
+    for (let i = 0; i < 5; i++) tr([[2.7, 4.4 + i * 0.35], [3.6, 4.4 + i * 0.35], [4.6, 5.4 + i * 0.35], [9.3, 5.4 + i * 0.35]]);
+    for (let i = 0; i < 12; i++) tr([[12.3 + i * 0.82, 10.4], [12.3 + i * 0.82, 16.4]]);
+    for (let i = 0; i < 70; i++) {
+      const x = 1 + rnd() * 25, z = 2.2 + rnd() * 16;
+      c.fillStyle = '#12417f'; c.beginPath(); c.arc(px(x), px(z), 9, 0, 7); c.fill();
+      c.fillStyle = '#061c3e'; c.beginPath(); c.arc(px(x), px(z), 4, 0, 7); c.fill();
+    }
+    // 고정 구멍 테두리, 금색 테스트 포인트
+    c.strokeStyle = '#c9d3dc'; c.lineWidth = 14;
+    HOLES.forEach(([x, z]) => { c.beginPath(); c.arc(px(x), px(z), px(0.78), 0, 7); c.stroke(); });
+    c.fillStyle = '#d8b24a';
+    [[3.6, 7.75], [4.2, 7.75], [4.8, 7.75], [5.4, 7.75], [6.0, 7.75], [3.6, 14.65], [4.3, 14.65], [5.0, 14.65],
+      [16.2, 3.6], [16.9, 3.6], [22.6, 9.6], [9.9, 8.5], [10.5, 8.5]].forEach(([x, z]) => { c.beginPath(); c.arc(px(x), px(z), 11, 0, 7); c.fill(); });
+
+    // 실크 인쇄
+    const W = '#f4f6f8', DARK = '#0b2c5e';
+    const vtext = (t, x, z, rot, o) => {
+      o = o || {};
+      c.save();
+      c.translate(px(x), px(z));
+      c.rotate(rot);
+      c.font = (o.font || 'bold 28px') + ' Consolas, monospace';
+      c.textAlign = o.align || 'left'; c.textBaseline = 'middle';
+      if (o.box) {
+        const w = c.measureText(t).width, x0 = o.align === 'center' ? -w / 2 : 0;
+        c.fillStyle = W; c.fillRect(x0 - 7, -20, w + 14, 40);
+        c.fillStyle = DARK;
+      } else {
+        c.fillStyle = o.color || W;
+      }
+      c.fillText(t, 0, 0);
+      c.restore();
+    };
+    ['SCL', 'SDA', 'AREF', 'GND', '13', '12', '~11', '~10', '~9', '8'].forEach((n, i) => vtext(n, 7.4 + i, 1.78, Math.PI / 2, { box: n === 'GND' }));
+    ['7', '~6', '~5', '4', '~3', '2', 'TX→1', 'RX←0'].forEach((n, i) => vtext(n, 18 + i, 1.78, Math.PI / 2));
+    ['', 'IOREF', 'RESET', '3.3V', '5V', 'GND', 'GND', 'VIN'].forEach((n, i) => {
+      if (n === 'GND') return;
+      vtext(n, 11 + i, 19.32, -Math.PI / 2, n === '5V' ? { color: '#ffe45c', font: 'bold 34px' } : {});
+    });
+    c.fillStyle = W; c.fillRect(px(15.55), px(18.25), px(1.9), px(1.12));      // GND 두 칸을 묶은 흰 상자
+    vtext('GND', 16.5, 18.81, 0, { align: 'center', color: DARK, font: 'bold 34px' });
+    ['A0', 'A1', 'A2', 'A3', 'A4', 'A5'].forEach((n, i) => vtext(n, 20 + i, 19.32, -Math.PI / 2));
+    ['OFF', 'GND', 'VRTC'].forEach((n, i) => vtext(n, 7.1 + i, 18.3, -Math.PI / 2, { box: n === 'GND', font: 'bold 24px' }));
+    c.strokeStyle = W; c.lineWidth = 4;
+    tr([[17.5, 3.55], [25.6, 3.55]]);
+    tr([[10.6, 17.85], [25.6, 17.85]]);
+    vtext('DIGITAL (PWM~)', 21.6, 4.0, 0, { align: 'center' });
+    vtext('POWER', 14.5, 17.4, 0, { align: 'center', box: true, font: 'bold 26px' });
+    vtext('ANALOG IN', 22.5, 17.4, 0, { align: 'center', box: true, font: 'bold 26px' });
+    vtext('RESET', 4.2, 3.35, 0, { align: 'center', font: 'bold 24px' });
+    vtext('L', 11.55, 3.6, 0, { font: 'bold 22px' });
+    vtext('TX', 11.55, 4.15, 0, { font: 'bold 22px' });
+    vtext('RX', 11.55, 4.7, 0, { font: 'bold 22px' });
+    vtext('ON', 23.6, 9.25, 0, { align: 'center', font: 'bold 22px' });
+    // 아두이노 로고(∞ 안에 −, +)와 제품명
+    c.strokeStyle = W; c.lineWidth = 13;
+    c.beginPath(); c.arc(px(12.62), px(5.75), px(0.58), 0, 7); c.stroke();
+    c.beginPath(); c.arc(px(13.98), px(5.75), px(0.58), 0, 7); c.stroke();
+    c.lineWidth = 8;
+    tr([[12.38, 5.75], [12.86, 5.75]]);
+    tr([[13.74, 5.75], [14.22, 5.75]]);
+    tr([[13.98, 5.51], [13.98, 5.99]]);
+    vtext('ARDUINO', 13.3, 6.95, 0, { align: 'center', font: 'bold 36px' });
+    c.lineWidth = 4; c.strokeRect(px(11.9), px(7.5), px(1.65), px(0.8));
+    vtext('UNO', 12.72, 7.92, 0, { align: 'center', font: 'bold 34px' });
+    c.fillStyle = W; c.fillRect(px(13.55), px(7.5), px(1.2), px(0.8));
+    vtext('R4', 14.15, 7.92, 0, { align: 'center', color: DARK, font: 'bold 34px' });
+    c.fillStyle = W; c.fillRect(px(11.9), px(8.5), px(1.9), px(0.8));
+    vtext('WIFI', 12.85, 8.92, 0, { align: 'center', color: DARK, font: 'bold 34px' });
+  });
+  const lm = M(0xffffff, { map: tex, see: 0.5, r: 0.42 });
+  lm.alphaTest = 0.5;
+  flatPlane(board, 27, 21, [-22, PCB_Y + 0.012, 0], lm);
+}
+
+// 핀 소켓(검은 헤더): 윗면에 핀 구멍 무늬를 반복해서 입힘
+const socketTex = makeTextTexture(64, 64, (c) => {
+  c.fillStyle = '#1b1d20'; c.fillRect(0, 0, 64, 64);
+  c.strokeStyle = '#08090a'; c.lineWidth = 3; c.strokeRect(0, 0, 64, 64);
+  c.strokeStyle = '#33373c'; c.lineWidth = 4; c.strokeRect(14, 14, 36, 36);
+  c.fillStyle = '#030304'; c.fillRect(17, 17, 30, 30);
+  c.fillStyle = '#6e5c22'; c.fillRect(28, 28, 8, 8);
+});
+const hdrMat = M(0x17191c, { r: 0.55, see: 0.25 });
+function header(x0, z, n) {
+  bbox([n, 3.2, 1], x0 + (n - 1) / 2, 1.6, z, hdrMat);
+  const t = socketTex.clone();
+  t.wrapS = THREE.RepeatWrapping;
+  t.repeat.set(n, 1);
+  t.needsUpdate = true;
+  flatPlane(board, n, 1, [BX(x0 + (n - 1) / 2), PCB_Y + 3.206, BZ(z)], M(0xffffff, { map: t, see: 0.25, r: 0.6 }));
+}
+header(7.4, 1, 10);      // SCL ~ 8
+header(18, 1, 8);        // 7 ~ 0
+header(11, 20, 8);       // POWER
+header(20, 20, 6);       // ANALOG IN
+
+// USB-C 단자
+const steel = () => M(0xc6cbd0, { metal: 0.92, r: 0.22, see: 0.25 });
+const INFO_USB = { n: 'USB-C 단자', d: '컴퓨터나 충전기에서 5V 전원이 들어오는 곳입니다. 이 전원이 5V 핀으로 나갑니다.' };
+bbox([3.0, 1.25, 3.6], 1.1, 0.63, 5.3, steel(), INFO_USB);
+bbox([0.06, 0.8, 3.1], -0.42, 0.63, 5.3, M(0x050506, { r: 0.8 }), INFO_USB);
+bbox([0.3, 0.2, 2.5], -0.36, 0.63, 5.3, M(0xd9dde0, { r: 0.5 }), INFO_USB);
+// DC 전원 잭
+const jackMat = M(0x0e0f11, { r: 0.6, see: 0.25 });
+bbox([5.2, 4.2, 3.6], 1.9, 2.1, 16.2, jackMat);
+bbox([1.2, 2.2, 3.6], 5.0, 1.1, 16.2, jackMat);
+rod(board, [BX(-0.92), PCB_Y + 2.1, BZ(16.2)], [BX(-0.7), PCB_Y + 2.1, BZ(16.2)], 1.5, M(0x2b2d30, { r: 0.5 }));
+rod(board, [BX(-0.97), PCB_Y + 2.1, BZ(16.2)], [BX(-0.9), PCB_Y + 2.1, BZ(16.2)], 1.05, M(0x020203, { r: 0.9 }));
+rod(board, [BX(-1.1), PCB_Y + 2.1, BZ(16.2)], [BX(-0.6), PCB_Y + 2.1, BZ(16.2)], 0.22, steel());
+// 리셋 버튼
+bbox([2.2, 0.7, 2.2], 4.2, 0.35, 1.9, steel());
+rod(board, [BX(4.2), PCB_Y + 0.7, BZ(1.9)], [BX(4.2), PCB_Y + 1.15, BZ(1.9)], 0.62, M(0xf0e8d6, { r: 0.5 }));
+
+// ESP32-S3 모듈: 검은 기판(안테나) + 금속 차폐 캔
+const INFO_ESP = { n: 'ESP32-S3 모듈', d: 'WiFi와 블루투스 통신을 맡는 부품입니다. 이 LED 회로에서는 쓰이지 않습니다.' };
+bbox([8, 0.25, 6], 5.2, 0.125, 11.2, M(0x101214, { r: 0.6 }), INFO_ESP);
+bbox([5.8, 0.7, 5.6], 6.25, 0.6, 11.2, M(0xcfc9b8, { metal: 0.9, r: 0.3 }), INFO_ESP);
+topLabel(board, 2.0, 5.6, [BX(2.25), PCB_Y + 0.262, BZ(11.2)], (c) => {
+  c.fillStyle = '#101214'; c.fillRect(0, 0, 160, 448);
+  c.strokeStyle = '#3a3320'; c.lineWidth = 10;
+  c.beginPath();
+  for (let i = 0; i < 9; i++) {
+    const y = 30 + i * 48;
+    c.moveTo(i % 2 ? 130 : 30, y); c.lineTo(i % 2 ? 30 : 130, y); c.lineTo(i % 2 ? 30 : 130, y + 48);
+  }
+  c.stroke();
+});
+topLabel(board, 5.8, 5.6, [BX(6.25), PCB_Y + 0.962, BZ(11.2)], (c) => {
+  c.fillStyle = '#d6d0bf'; c.fillRect(0, 0, 464, 448);
+  c.strokeStyle = '#a9a391'; c.lineWidth = 5; c.strokeRect(14, 14, 436, 420);
+  c.fillStyle = '#3d3a33'; c.textBaseline = 'middle';
+  c.font = 'bold 40px Arial, sans-serif'; c.fillText('ESPRESSIF', 40, 78);
+  c.font = 'bold 30px Consolas, monospace'; c.fillText('ESP32-S3-MINI-1', 40, 136);
+  c.font = '18px Consolas, monospace';
+  c.fillText('FCC ID: 2AC7Z-ESPS3MINI1', 40, 190);
+  c.fillText('IC: 21098-ESPS3MINI1', 40, 218);
+  c.fillText('M0N8  XX0H32', 40, 246);
+  for (let i = 0; i < 13; i++) {
+    for (let j = 0; j < 13; j++) {
+      if (rnd() < 0.5 || i % 12 === 0 || j % 12 === 0) c.fillRect(250 + i * 12, 270 + j * 12, 12, 12);
+    }
+  }
+}, { metal: 0.75, r: 0.35 });
+
+// 메인 마이크로컨트롤러(RA4M1): 검은 몸통 + 네 변의 다리
+const INFO_MCU = { n: 'RA4M1 마이크로컨트롤러', d: '아두이노의 두뇌. 프로그램을 실행해 핀을 제어합니다. 이 회로는 5V와 GND만 쓰므로 프로그램 없이도 켜집니다.' };
+bbox([3.9, 0.55, 3.9], 19.4, 0.33, 7.2, M(0x151719, { r: 0.45 }), INFO_MCU);
+topLabel(board, 3.9, 3.9, [BX(19.4), PCB_Y + 0.612, BZ(7.2)], (c) => {
+  c.fillStyle = '#17191b'; c.fillRect(0, 0, 312, 312);
+  c.fillStyle = '#2c2f33'; c.beginPath(); c.arc(40, 272, 14, 0, 7); c.fill();
+  c.fillStyle = '#8b9096'; c.textBaseline = 'middle';
+  c.font = 'bold 34px Arial, sans-serif'; c.fillText('RENESAS', 62, 96);
+  c.font = '26px Consolas, monospace'; c.fillText('R7FA4M1AB', 62, 146); c.fillText('3CFM  2306', 62, 184);
+});
+{
+  const legs = [];
+  for (let i = 0; i < 16; i++) {
+    const o = -1.725 + i * 0.23;
+    legs.push([BX(19.4 + o), PCB_Y + 0.07, BZ(7.2 - 2.15), 0], [BX(19.4 + o), PCB_Y + 0.07, BZ(7.2 + 2.15), 0]);
+    legs.push([BX(19.4 - 2.15), PCB_Y + 0.07, BZ(7.2 + o), Math.PI / 2], [BX(19.4 + 2.15), PCB_Y + 0.07, BZ(7.2 + o), Math.PI / 2]);
+  }
+  instanced(board, new THREE.BoxGeometry(0.11, 0.14, 0.5), M(0xcdd2d6, { metal: 0.9, r: 0.25 }), legs);
+}
+
+// LED 매트릭스(12×8)
+{
+  const leds = [];
+  for (let r = 0; r < 8; r++) {
+    for (let col = 0; col < 12; col++) leds.push([BX(12.3 + col * 0.82), PCB_Y + 0.09, BZ(10.9 + r * 0.72), Math.PI / 4]);
+  }
+  instanced(board, new THREE.BoxGeometry(0.52, 0.18, 0.27), M(0xeceee8, { r: 0.35 }), leds);
+}
+
+// 핀 헤더(ESP 2×3, ICSP 2×3, 전원 선택 3핀): 검은 받침 + 금색 핀
+const baseMat = M(0x141618, { r: 0.55 });
+bbox([3, 1, 2], 9.1, 0.5, 4.2, baseMat);
+bbox([2, 1, 3], 25.3, 0.5, 12.4, baseMat);
+bbox([3, 1, 1], 8.1, 0.5, 18.9, baseMat);
+{
+  const pins = [];
+  for (const x of [8.1, 9.1, 10.1]) for (const z of [3.7, 4.7]) pins.push([BX(x), PCB_Y + 1.6, BZ(z)]);
+  for (const x of [24.8, 25.8]) for (const z of [11.4, 12.4, 13.4]) pins.push([BX(x), PCB_Y + 1.6, BZ(z)]);
+  for (const x of [7.1, 8.1, 9.1]) pins.push([BX(x), PCB_Y + 1.6, BZ(18.9)]);
+  instanced(board, new THREE.BoxGeometry(0.25, 3.2, 0.25), M(0xdab44a, { metal: 0.95, r: 0.2 }), pins);
+}
+// Qwiic 커넥터
+bbox([2, 1.1, 2.6], 25.3, 0.55, 15.9, M(0xe9e2cf, { r: 0.6 }));
+bbox([0.9, 0.7, 2.0], 25.95, 0.65, 15.9, M(0x8f8a7c, { r: 0.7 }));
+
+// 전원부: 인덕터, 레귤레이터, 작은 IC
+bbox([1.6, 0.9, 1.6], 10.6, 0.45, 13.4, M(0x8b8f93, { metal: 0.5, r: 0.5 }));
+topLabel(board, 1.6, 1.6, [BX(10.6), PCB_Y + 0.912, BZ(13.4)], (c) => {
+  c.fillStyle = '#93979b'; c.fillRect(0, 0, 128, 128);
+  c.fillStyle = '#2a2c2e'; c.font = 'bold 40px Consolas, monospace'; c.textAlign = 'center'; c.textBaseline = 'middle';
+  c.fillText('103N', 64, 66);
+});
+const icMat = M(0x131516, { r: 0.45 });
+bbox([1.5, 0.5, 1.0], 10.6, 0.25, 15.6, icMat);
+bbox([1.3, 0.14, 0.4], 10.6, 0.07, 14.95, M(0xcdd2d6, { metal: 0.9, r: 0.25 }));
+bbox([1.3, 0.35, 0.9], 5.7, 0.175, 6.8, icMat);
+bbox([1.5, 0.4, 1.5], 10.5, 0.2, 9.6, icMat);
+bbox([1.0, 0.3, 0.7], 16.0, 0.15, 10.0, icMat);
+
+// 표시용 작은 LED: ON(초록, 켜짐), L·TX·RX(꺼짐)
+bbox([0.42, 0.26, 0.26], 23.6, 0.13, 9.9, M(0x7dff7d, { em: 0x35ff35, ei: 1.4 }),
+  { n: 'ON 표시등', d: '보드에 전원이 들어오면 켜지는 초록 LED입니다.' });
+{
+  const g = glowSprite(0x40ff40, 2.6);
+  g.position.set(BX(23.6), PCB_Y + 0.5, BZ(9.9));
+  board.add(g);
+}
+const dimLed = M(0xd9c9a0, { r: 0.4 });
+bbox([0.42, 0.26, 0.26], 11.2, 0.13, 3.6, dimLed);
+bbox([0.42, 0.26, 0.26], 11.2, 0.13, 4.15, dimLed);
+bbox([0.42, 0.26, 0.26], 11.2, 0.13, 4.7, dimLed);
+
+// 작은 표면실장 부품(콘덴서·저항)을 빈 자리에 깔아 실제 기판처럼 보이게 함
+{
+  const caps = [], ress = [];
+  const areas = [[3.2, 5.7, 4.8, 7.9], [6.7, 5.7, 9.3, 7.9], [9.7, 10.6, 11.6, 12.3], [9.7, 16.5, 11.5, 17.3],
+    [5.9, 14.8, 9.3, 17.0], [15.2, 4.7, 16.7, 9.4], [22.4, 4.8, 25.0, 8.8], [22.4, 10.6, 23.9, 14.0]];
+  for (const [x0, z0, x1, z1] of areas) {
+    for (let x = x0 + 0.3; x < x1; x += 0.85) {
+      for (let z = z0 + 0.25; z < z1; z += 0.6) {
+        const r = rnd();
+        if (r < 0.22) continue;
+        (r < 0.68 ? caps : ress).push([BX(x), PCB_Y + (r < 0.68 ? 0.16 : 0.1), BZ(z), rnd() < 0.3 ? Math.PI / 2 : 0]);
+      }
+    }
+  }
+  instanced(board, new THREE.BoxGeometry(0.5, 0.32, 0.28), M(0xb39262, { r: 0.5 }), caps);
+  instanced(board, new THREE.BoxGeometry(0.46, 0.2, 0.26), M(0x18191b, { r: 0.5 }), ress);
+}
+
+// 5V·GND 핀(헤더 속 금속)
+const INFO_5V = { n: '5V 핀', d: '아두이노가 5V를 내보내는 핀. 이 회로에서 전위가 가장 높은 곳이며 전류가 출발합니다.' };
+const INFO_GND = { n: 'GND 핀', d: '전위 0V의 기준점. 전류가 돌아오는 곳이고, 전자는 여기서 출발합니다.' };
+rod(board, [P5, 0.8, 9.5], [P5, 4.0, 9.5], 0.16, M(0xcfd3d6, { metal: 0.85, r: 0.3, see: 0.3, volt: 5 }), INFO_5V);
+rod(board, [PG, 0.8, 9.5], [PG, 4.0, 9.5], 0.16, M(0xcfd3d6, { metal: 0.85, r: 0.3, see: 0.3, volt: 0 }), INFO_GND);
+
+// ───────────────────────── 브레드보드 ─────────────────────────
+const bbBase = part('bbBase', '내부 금속 클립',
+  '같은 번호 줄의 구멍 5개(A~E)는 속에서 하나의 금속 클립으로 이어져 있습니다.', [0, 0, 0]);
+box(bbBase, [32, 0.6, 21.6], [18, 0.3, 0], M(0xd9d5c8, { see: 0.5 }));
+{
+  // 쓰지 않는 클립 60개
+  const cm = M(0x8d949a, { metal: 0.8, r: 0.4, see: 0.18 });
+  const im = new THREE.InstancedMesh(new THREE.BoxGeometry(0.4, 1.2, 4.6), cm, 60);
+  const mm = new THREE.Matrix4();
+  let k = 0;
+  for (let c = 1; c <= 30; c++) {
+    for (const z of [-4, 4]) {
+      const used = z === 4 && (c === 5 || c === 6 || c === 10);
+      mm.makeTranslation(3.5 + (c - 1), 2.0, z);
+      if (used) mm.makeScale(0, 0, 0);                    // 쓰는 클립 자리는 따로 그림
+      im.setMatrixAt(k++, mm);
+    }
+  }
+  im.userData.info = bbBase.userData.info;
+  bbBase.add(im);
+  pickables.push(im);
+}
+// 회로에 쓰이는 클립 3개 (전위 색을 입힐 수 있게 따로 만듦)
+const clipInfo = (c, v) => ({ n: c + '번 줄 금속 클립', d: 'A~E 구멍을 속에서 이어 줍니다. 이 클립 전체의 전위는 ' + v + 'V입니다.' });
+box(bbBase, [0.4, 1.2, 4.6], [X10, 2.0, 4], M(0xd9b24a, { metal: 0.8, r: 0.35, see: 0.35, volt: 5 }), clipInfo(10, 5));
+box(bbBase, [0.4, 1.2, 4.6], [X6, 2.0, 4], M(0xd9b24a, { metal: 0.8, r: 0.35, see: 0.35, volt: 2 }), clipInfo(6, 2));
+box(bbBase, [0.4, 1.2, 4.6], [X5, 2.0, 4], M(0xd9b24a, { metal: 0.8, r: 0.35, see: 0.35, volt: 0 }), clipInfo(5, 0));
+
+const cover = part('cover', '브레드보드',
+  '납땜 없이 부품을 꽂아 회로를 만드는 판. 덮개 아래에 금속 클립이 숨어 있습니다.', [0, 7, 0]);
+box(cover, [32, 2.4, 21.6], [18, 1.8, 0], M(0xe6e2d6, { see: 0.06 }));
+{
+  const S = 50, tx = (x) => (x - 2) * S, tz = (z) => (z + 10.8) * S;
+  const tex = makeTextTexture(32 * S, Math.round(21.6 * S), (c) => {
+    c.fillStyle = '#ece8dd'; c.fillRect(0, 0, 32 * S, 21.6 * S);
+    c.fillStyle = '#d3cec0'; c.fillRect(0, tz(-0.7), 32 * S, 1.4 * S);
+    c.fillStyle = '#262626';
+    for (let col = 1; col <= 30; col++) {
+      for (const z of [-6, -5, -4, -3, -2, 2, 3, 4, 5, 6]) {
+        c.fillRect(tx(3.5 + col - 1) - 9, tz(z) - 9, 18, 18);
+      }
+    }
+    for (let k = 0; k < 29; k++) {
+      if (k % 6 === 5) continue;
+      for (const z of [-9.6, -8.6, 8.6, 9.6]) {
+        c.fillRect(tx(4 + k) - 9, tz(z) - 9, 18, 18);
+      }
+    }
+    c.lineWidth = 4;
+    const line = (z, color) => { c.strokeStyle = color; c.beginPath(); c.moveTo(tx(3), tz(z)); c.lineTo(tx(33), tz(z)); c.stroke(); };
+    line(-10.3, '#2b4fd6'); line(-7.9, '#d62b2b'); line(7.9, '#2b4fd6'); line(10.3, '#d62b2b');
+    c.fillStyle = '#8f8a7c'; c.textAlign = 'center'; c.textBaseline = 'middle';
+    c.font = 'bold 24px Consolas, monospace';
+    for (const col of [1, 5, 10, 15, 20, 25, 30]) {
+      c.fillText(col, tx(3.5 + col - 1), tz(-6.95));
+      c.fillText(col, tx(3.5 + col - 1), tz(6.95));
+    }
+    'JIHGF'.split('').forEach((ch, i) => { c.fillText(ch, tx(2.6), tz(-6 + i)); c.fillText(ch, tx(33.4), tz(-6 + i)); });
+    'EDCBA'.split('').forEach((ch, i) => { c.fillText(ch, tx(2.6), tz(2 + i)); c.fillText(ch, tx(33.4), tz(2 + i)); });
+  });
+  flatPlane(cover, 32, 21.6, [18, 3.012, 0], M(0xffffff, { map: tex, see: 0.16 }));
+}
+
+// ───────────────────────── 전류가 지나는 길 ─────────────────────────
+// 전류 방향(5V → GND) 순서로 구간을 나열한다. v0→v1 은 그 구간의 전위 변화
+const RED_PTS = [[P5, 4, 9.5], [P5, 6.2, 9.5], [P5 - 1, 7.2, 12], [-17, 6, 15.5], [2, 5, 15.5],
+  [13.5, 5.5, 13.5], [13.4, 7.2, 7.5], [12.5, 6.6, 3.2], [12.5, 5, 3], [12.5, CY, 3]];
+const BLACK_PTS = [[X5, CY, ZA], [X5, 5, ZA], [7.4, 6.6, 6.6], [6.6, 6.4, 9.8], [3.5, 5.5, 12.4],
+  [-6, 5, 12.8], [-15.5, 5.5, 12.4], [PG + 0.3, 6.6, 11.2], [PG, 6.2, 9.5], [PG, 4, 9.5]];
+const SEGS = [
+  { tag: 'pin5',  p: [[P5, 0.8, 9.5], [P5, 4, 9.5]], v0: 5, v1: 5 },
+  { tag: 'red',   p: RED_PTS, curve: true, v0: 5, v1: 5 },
+  { tag: 'clip10', p: [[X10, CY, ZD], [X10, CY, ZA]], v0: 5, v1: 5 },
+  { tag: 'rlegR', p: [[X10, CY, ZA], [X10, 4.2, ZA], [11.7, 4.2, ZA]], v0: 5, v1: 5 },
+  { tag: 'rbody', p: [[11.7, 4.2, ZA], [9.3, 4.2, ZA]], v0: 5, v1: 2 },
+  { tag: 'rlegL', p: [[9.3, 4.2, ZA], [X6, 4.2, ZA], [X6, CY, ZA]], v0: 2, v1: 2 },
+  { tag: 'clip6', p: [[X6, CY, ZA], [X6, CY, ZE]], v0: 2, v1: 2 },
+  { tag: 'ledA',  p: [[X6, CY, ZE], [X6, 8.6, ZE]], v0: 2, v1: 2 },
+  { tag: 'chip',  p: [[X6, 8.6, ZE], [X5, 8.6, ZE]], v0: 2, v1: 0 },
+  { tag: 'ledK',  p: [[X5, 8.6, ZE], [X5, CY, ZE]], v0: 0, v1: 0 },
+  { tag: 'clip5', p: [[X5, CY, ZE], [X5, CY, ZA]], v0: 0, v1: 0 },
+  { tag: 'black', p: BLACK_PTS, curve: true, v0: 0, v1: 0 },
+  { tag: 'pinG',  p: [[PG, 4, 9.5], [PG, 0.8, 9.5]], v0: 0, v1: 0 },
+  // 보드 내부 전원: 전자를 다시 높은 에너지로 끌어올리는 구간
+  { tag: 'src',   p: [[PG, 0.8, 9.5], [PG, 0.8, 6.5], [P5, 0.8, 6.5], [P5, 0.8, 9.5]], v0: 0, v1: 5 },
+];
+const pathPts = [], pathCum = [];
+let pathLen = 0;
+SEGS.forEach((sg) => {
+  if (sg.curve) {
+    sg.curveObj = new THREE.CatmullRomCurve3(sg.p.map(v3), false, 'centripetal');
+  }
+  const pts = sg.curve ? sg.curveObj.getSpacedPoints(160) : sg.p.map(v3);
+  sg.s0 = pathLen;
+  pts.forEach((q, k) => {
+    if (pathPts.length && k === 0) return;          // 앞 구간 끝점과 겹치는 점은 건너뜀
+    if (pathPts.length) pathLen += q.distanceTo(pathPts[pathPts.length - 1]);
+    pathPts.push(q);
+    pathCum.push(pathLen);
+  });
+  sg.s1 = pathLen;
+});
+const segByTag = {};
+SEGS.forEach((sg) => { segByTag[sg.tag] = sg; });
+
+// 길 위의 거리 s 에서 위치·방향·전위를 구한다
+const smp = { pos: new THREE.Vector3(), tan: new THREE.Vector3(), V: 0, tag: '' };
+function sample(s) {
+  s = ((s % pathLen) + pathLen) % pathLen;
+  let sg = SEGS[SEGS.length - 1];
+  for (const g of SEGS) {
+    if (s >= g.s0 && s < g.s1) { sg = g; break; }
+  }
+  let lo = 0, hi = pathCum.length - 1;
+  while (hi - lo > 1) {
+    const mid = (lo + hi) >> 1;
+    if (pathCum[mid] <= s) lo = mid; else hi = mid;
+  }
+  const t = (s - pathCum[lo]) / Math.max(1e-6, pathCum[hi] - pathCum[lo]);
+  smp.pos.lerpVectors(pathPts[lo], pathPts[hi], t);
+  smp.tan.subVectors(pathPts[hi], pathPts[lo]).normalize();
+  smp.V = sg.v0 + (sg.v1 - sg.v0) * (s - sg.s0) / (sg.s1 - sg.s0);
+  smp.tag = sg.tag;
+  return smp;
+}
+
+// ───────────────────────── 점퍼선 ─────────────────────────
+function jumper(key, name, desc, off, sg, color, volt, plugA, plugB) {
+  const g = part(key, name, desc, off);
+  const tube = new THREE.Mesh(new THREE.TubeGeometry(sg.curveObj, 200, 0.3, 10), M(color, { r: 0.45, see: 0.2, volt }));
+  add(g, tube);
+  const plugM = M(0x1b1d20, { r: 0.6, see: 0.2 });
+  box(g, [0.75, 1.7, 0.75], plugA.pos, plugM, plugA.info);
+  box(g, [0.75, 1.7, 0.75], plugB.pos, plugM, plugB.info);
+  // 브레드보드 쪽 금속 핀
+  const end = sg.tag === 'red' ? sg.p[sg.p.length - 1] : sg.p[0];
+  rod(g, [end[0], CY - 0.4, end[2]], [end[0], 3.4, end[2]], 0.14, M(0xcfd3d6, { metal: 0.85, r: 0.3, see: 0.3, volt }));
+  return g;
+}
+jumper('wireRed', '빨간 점퍼선 (5V)', '5V 핀과 브레드보드 10번 줄을 잇습니다. 선 전체가 5V입니다.',
+  [0, 4, 9], segByTag.red, 0xd01f1f, 5,
+  { pos: [P5, 4.85, 9.5], info: INFO_5V }, { pos: [12.5, 4.25, 3] });
+jumper('wireBlack', '검은 점퍼선 (GND)', '브레드보드 5번 줄과 GND 핀을 잇습니다. 선 전체가 0V입니다.',
+  [-3, 2, 5], segByTag.black, 0x1a1a1a, 0,
+  { pos: [PG, 4.85, 9.5], info: INFO_GND }, { pos: [X5, 4.25, ZA] });
+
+// ───────────────────────── 저항 ─────────────────────────
+const resistor = part('resistor', '저항 220Ω',
+  '전류가 흐르기 어렵게 막는 부품. 전자가 속의 원자와 부딪히며 에너지를 열로 내놓아 3.0V가 떨어집니다.', [2, 9, 7]);
+rod(resistor, [X10, CY - 0.4, ZA], [X10, 4.2, ZA], 0.12, M(0xcfd3d6, { metal: 0.85, r: 0.3, see: 0.3, volt: 5 }));
+rod(resistor, [X10, 4.2, ZA], [11.7, 4.2, ZA], 0.12, M(0xcfd3d6, { metal: 0.85, r: 0.3, see: 0.3, volt: 5 }));
+rod(resistor, [9.3, 4.2, ZA], [X6, 4.2, ZA], 0.12, M(0xcfd3d6, { metal: 0.85, r: 0.3, see: 0.3, volt: 2 }));
+rod(resistor, [X6, 4.2, ZA], [X6, CY - 0.4, ZA], 0.12, M(0xcfd3d6, { metal: 0.85, r: 0.3, see: 0.3, volt: 2 }));
+const resBodyMat = M(0xd9bd8c, { r: 0.55, see: 0.22, em: 0xff5a00, ei: 0 });
+rod(resistor, [11.7, 4.2, ZA], [9.3, 4.2, ZA], 0.5, resBodyMat);
+ball(resistor, [11.7, 4.2, ZA], 0.5, resBodyMat);
+ball(resistor, [9.3, 4.2, ZA], 0.5, resBodyMat);
+// 색띠: 빨강-빨강-갈색-금색 = 220Ω ±5%
+[[11.25, 0xc81e1e], [10.85, 0xc81e1e], [10.45, 0x6b3a1a], [9.65, 0xc9a227]].forEach(([x, c]) => {
+  rod(resistor, [x - 0.09, 4.2, ZA], [x + 0.09, 4.2, ZA], 0.52, M(c, { r: 0.5, see: 0.3 }));
+});
+// 저항 속 원자(속 보기에서만 보임)
+const ATOMS = 18, atomHome = [];
+const atoms = new THREE.InstancedMesh(new THREE.SphereGeometry(0.085, 8, 6),
+  new THREE.MeshBasicMaterial({ color: 0xffa24a }), ATOMS);
+for (let i = 0; i < ATOMS; i++) {
+  const a = i * 2.4, r = 0.12 + 0.2 * ((i * 7) % 5) / 5;
+  atomHome.push(new THREE.Vector3(9.5 + 2.0 * i / (ATOMS - 1), 4.2 + r * Math.cos(a), ZA + r * Math.sin(a)));
+}
+resistor.add(atoms);
+
+// ───────────────────────── LED ─────────────────────────
+const led = part('led', '빨간 LED',
+  '전류가 한 방향(긴 다리 → 짧은 다리)으로만 흐르는 부품. 전기 에너지를 빛으로 바꾸며 약 2.0V가 떨어집니다.', [-2, 9, -4]);
+rod(led, [X6, CY - 0.4, ZE], [X6, 8.6, ZE], 0.12, M(0xcfd3d6, { metal: 0.85, r: 0.3, see: 0.3, volt: 2 }),
+  { n: 'LED 긴 다리 (+)', d: '애노드. 전류가 들어가는 쪽이며 전위는 2V입니다.' });
+rod(led, [X5, CY - 0.4, ZE], [X5, 8.6, ZE], 0.12, M(0xcfd3d6, { metal: 0.85, r: 0.3, see: 0.3, volt: 0 }),
+  { n: 'LED 짧은 다리 (−)', d: '캐소드. 전류가 나오는 쪽이며 전위는 0V입니다.' });
+box(led, [0.55, 1.1, 0.45], [X5 + 0.05, 8.25, ZE], M(0xcfd3d6, { metal: 0.85, r: 0.3, see: 0.4 }));
+box(led, [0.3, 0.9, 0.3], [X6, 8.15, ZE], M(0xcfd3d6, { metal: 0.85, r: 0.3, see: 0.4 }));
+const ledMat = M(0xff2b2b, { r: 0.25, op: 0.82, see: 0.28, em: 0xff1a1a, ei: 0.9 });
+{
+  const cyl = new THREE.Mesh(new THREE.CylinderGeometry(1, 1, 1.7, 24), ledMat);
+  cyl.position.set(8, 8.25, ZE);
+  add(led, cyl);
+  const dome = new THREE.Mesh(new THREE.SphereGeometry(1, 24, 12, 0, Math.PI * 2, 0, Math.PI / 2), ledMat);
+  dome.position.set(8, 9.1, ZE);
+  add(led, dome);
+  const rim = new THREE.Mesh(new THREE.CylinderGeometry(1.15, 1.15, 0.25, 24), ledMat);
+  rim.position.set(8, 7.5, ZE);
+  add(led, rim);
+}
+const ledGlow = glowSprite(0xff3030, 9);
+ledGlow.position.set(8, 8.9, ZE);
+led.add(ledGlow);
+const ledLight = new THREE.PointLight(0xff2a2a, 1.3, 16);
+ledLight.position.set(8, 9.5, ZE);
+led.add(ledLight);
+
+// ───────────────────────── 전자 · 전류 화살표 ─────────────────────────
+const N_E = 150, N_A = 26;
+const electrons = new THREE.InstancedMesh(new THREE.SphereGeometry(0.17, 10, 8),
+  new THREE.MeshBasicMaterial({ color: 0xffffff }), N_E);
+const arrows = new THREE.InstancedMesh(new THREE.ConeGeometry(0.34, 1.0, 12),
+  new THREE.MeshBasicMaterial({ color: 0xffd84a }), N_A);
+electrons.frustumCulled = false;
+arrows.frustumCulled = false;
+scene.add(electrons, arrows);
+const tracer = new THREE.Mesh(new THREE.SphereGeometry(0.45, 14, 10), new THREE.MeshBasicMaterial({ color: 0xfff3b0 }));
+tracer.add(glowSprite(0xffe070, 5));
+scene.add(tracer);
+
+// 화살표를 도선 바깥에 띄우는 거리(구간별)
+const ARROW_OFF = {
+  red: [0, 0.8, 0], black: [0, 0.8, 0], clip10: [0, 1.6, 0], clip6: [0, 1.6, 0], clip5: [0, 1.6, 0],
+  rlegR: [0, 1.0, 0], rbody: [0, 1.0, 0], rlegL: [0, 1.0, 0],
+  ledA: [1.0, 0, 0], chip: [0, 2.0, 0], ledK: [-1.0, 0, 0],
+};
+const E_LOW = new THREE.Color(0x3d7fe0), E_HIGH = new THREE.Color(0xb5f0ff);
+const tM = new THREE.Matrix4(), tQ = new THREE.Quaternion(), tP = new THREE.Vector3(), tC = new THREE.Color();
+const UP = new THREE.Vector3(0, 1, 0), ONE = new THREE.Vector3(1, 1, 1), ZERO = new THREE.Vector3(0, 0, 0), QI = new THREE.Quaternion();
+let offE = 0, offA = 0, offT = 0;
+
+function updateFlow(dt, time) {
+  const sp = state.speed;
+  offE += dt * 5 * sp;
+  offA += dt * 8 * sp;
+  offT += dt * 26 * sp;
+  if (electrons.visible) {
+    for (let i = 0; i < N_E; i++) {
+      // 전자는 전류와 반대 방향(−s)으로 움직인다. 간격은 어디서나 같다(개수 보존)
+      const s = sample(i / N_E * pathLen - offE);
+      tP.copy(s.pos);
+      if (s.tag === 'rbody') {          // 저항 속에서는 원자와 부딪혀 흔들림
+        tP.y += 0.2 * Math.sin(time * 23 + i * 7.3);
+        tP.z += 0.2 * Math.cos(time * 19 + i * 5.1);
+      }
+      tM.compose(tP, QI, ONE);
+      electrons.setMatrixAt(i, tM);
+      // 전자의 에너지는 전위가 낮을수록 크다 → 0V 쪽에서 밝고 5V 쪽에서 어둡다
+      tC.copy(E_LOW).lerp(E_HIGH, 1 - s.V / 5);
+      electrons.setColorAt(i, tC);
+    }
+    electrons.instanceMatrix.needsUpdate = true;
+    electrons.instanceColor.needsUpdate = true;
+  }
+  if (arrows.visible) {
+    for (let i = 0; i < N_A; i++) {
+      const s = sample(i / N_A * pathLen + offA);
+      const o = ARROW_OFF[s.tag];
+      if (!o) {
+        tM.compose(s.pos, QI, ZERO);    // 보드 속 구간에서는 숨김
+      } else {
+        tP.set(s.pos.x + o[0], s.pos.y + o[1], s.pos.z + o[2]);
+        tQ.setFromUnitVectors(UP, s.tan);
+        tM.compose(tP, tQ, ONE);
+      }
+      arrows.setMatrixAt(i, tM);
+    }
+    arrows.instanceMatrix.needsUpdate = true;
+  }
+  if (tracer.visible) {
+    const s = sample(offT);
+    const o = ARROW_OFF[s.tag];
+    tracer.scale.setScalar(o ? 1 : 0.001);
+    if (o) tracer.position.set(s.pos.x + o[0], s.pos.y + o[1], s.pos.z + o[2]);
+  }
+  for (let i = 0; i < ATOMS; i++) {
+    tP.copy(atomHome[i]);
+    tP.y += 0.03 * Math.sin(time * 30 + i * 3);
+    tP.z += 0.03 * Math.cos(time * 27 + i * 4);
+    tM.compose(tP, QI, ONE);
+    atoms.setMatrixAt(i, tM);
+  }
+  atoms.instanceMatrix.needsUpdate = true;
+}
+
+// ───────────────────────── 화면 글자(이름표·전압 표시) ─────────────────────────
+const tags = [];
+function tag(text, cls, base, grp, cond) {
+  const el = document.createElement('div');
+  el.className = 'tag ' + cls;
+  el.textContent = text;
+  document.body.appendChild(el);
+  tags.push({ el, base: v3(base), grp, cond });
+}
+const isExp = () => state.explode;
+const isVolt = () => state.volt && !state.explode;
+tag('아두이노 우노 R4 WiFi', '', [-22, 5, -4], parts.board, isExp);
+tag('빨간 점퍼선 (5V)', '', [-4, 6.5, 15.5], parts.wireRed, isExp);
+tag('검은 점퍼선 (GND)', '', [-6, 6.5, 12.8], parts.wireBlack, isExp);
+tag('저항 220Ω', '', [10.5, 5.6, ZA], parts.resistor, isExp);
+tag('빨간 LED', '', [8, 11.2, ZE], parts.led, isExp);
+tag('브레드보드 덮개', '', [26, 3.6, -4], parts.cover, isExp);
+tag('내부 금속 클립', '', [18, 3.2, 4], parts.bbBase, isExp);
+tag('5V', 'v5', [-2, 6.3, 15.5], null, isVolt);
+tag('5V', 'v5', [14.2, 3.6, 4.5], null, isVolt);
+tag('2V', 'v2', [9.6, 3.6, 3.6], null, isVolt);
+tag('0V', 'v0', [6.2, 3.6, 3.6], null, isVolt);
+tag('0V', 'v0', [-6, 6.3, 12.8], null, isVolt);
+tag('저항에서 3.0V 강하', 'drop', [10.5, 6.0, ZA], null, isVolt);
+tag('LED에서 2.0V 강하', 'drop', [8, 10.9, ZE], null, isVolt);
+
+function updateTags() {
+  const w = window.innerWidth, h = window.innerHeight;
+  for (const t of tags) {
+    if (!t.cond()) { t.el.style.display = 'none'; continue; }
+    tP.copy(t.base);
+    if (t.grp) tP.add(t.grp.position);
+    tP.project(camera);
+    if (tP.z > 1) { t.el.style.display = 'none'; continue; }
+    t.el.style.display = 'block';
+    t.el.style.left = ((tP.x * 0.5 + 0.5) * w) + 'px';
+    t.el.style.top = ((-tP.y * 0.5 + 0.5) * h) + 'px';
+  }
+}
+
+// ───────────────────────── 전위 그래프 ─────────────────────────
+const gcv = document.getElementById('graph'), g2 = gcv.getContext('2d');
+const B1 = segByTag.rbody.s0, B2 = segByTag.rbody.s1, B3 = segByTag.chip.s0, B4 = segByTag.chip.s1, B5 = segByTag.src.s0;
+// 길 위의 거리 s → 그래프 가로 위치(0~1). 보드 속 구간은 -1
+function graphX(s) {
+  s = ((s % pathLen) + pathLen) % pathLen;
+  if (s < B1) return 0.28 * s / B1;
+  if (s < B2) return 0.28 + 0.14 * (s - B1) / (B2 - B1);
+  if (s < B3) return 0.42 + 0.16 * (s - B2) / (B3 - B2);
+  if (s < B4) return 0.58 + 0.14 * (s - B3) / (B4 - B3);
+  if (s < B5) return 0.72 + 0.28 * (s - B4) / (B5 - B4);
+  return -1;
+}
+function drawGraph() {
+  const W = gcv.width, H = gcv.height, L = 62, R = W - 16, T = 22, Bm = H - 44;
+  const X = (u) => L + (R - L) * u, Y = (v) => Bm - (Bm - T) * v / 5;
+  g2.clearRect(0, 0, W, H);
+  g2.font = '20px Malgun Gothic, sans-serif';
+  g2.textBaseline = 'middle';
+  // 눈금
+  g2.strokeStyle = 'rgba(255,255,255,0.12)'; g2.lineWidth = 1; g2.fillStyle = '#8ea2ae'; g2.textAlign = 'right';
+  for (const v of [0, 2, 5]) {
+    g2.beginPath(); g2.moveTo(L, Y(v)); g2.lineTo(R, Y(v)); g2.stroke();
+    g2.fillText(v + 'V', L - 8, Y(v));
+  }
+  g2.textAlign = 'center';
+  [['5V 핀', 0.04], ['저항', 0.35], ['LED', 0.65], ['GND', 0.96]].forEach(([n, u]) => g2.fillText(n, X(u), H - 18));
+  // 계단 모양 전위선
+  const hot = state.step === 3 ? 1 : state.step === 4 ? 3 : -1;
+  const pts = [[0, 5], [0.28, 5], [0.42, 2], [0.58, 2], [0.72, 0], [1, 0]];
+  const cols = ['#ff4d4d', '#ffe45c', '#ff9f1a', '#ffe45c', '#4d8dff'];
+  for (let i = 0; i < 5; i++) {
+    g2.strokeStyle = cols[i];
+    g2.lineWidth = i === hot ? 9 : 4;
+    g2.lineCap = 'round';
+    g2.beginPath(); g2.moveTo(X(pts[i][0]), Y(pts[i][1])); g2.lineTo(X(pts[i + 1][0]), Y(pts[i + 1][1])); g2.stroke();
+  }
+  g2.fillStyle = '#ffe45c'; g2.textAlign = 'left';
+  g2.fillText('−3.0V', X(0.37), Y(3.9));
+  g2.fillText('−2.0V', X(0.67), Y(1.4));
+  // 전류를 따라 움직이는 점
+  if (state.flow !== 'none' && !state.explode) {
+    const u = graphX(state.flow === 'trace' ? offT : offA);
+    if (u >= 0) {
+      let v = 5;
+      if (u > 0.28) v = u < 0.42 ? 5 - 3 * (u - 0.28) / 0.14 : u < 0.58 ? 2 : u < 0.72 ? 2 - 2 * (u - 0.58) / 0.14 : 0;
+      g2.fillStyle = '#fff';
+      g2.beginPath(); g2.arc(X(u), Y(v), 7, 0, Math.PI * 2); g2.fill();
+    }
+  }
+}
+
+// ───────────────────────── 상태와 단계 ─────────────────────────
+const state = { step: 0, see: false, explode: false, flow: 'trace', volt: false, speed: 1 };
+const CAM_ALL = { cam: [-2, 46, 55], tgt: [-2, 1, -1] };
+const CAM_EXP = { cam: [-2, 54, 70], tgt: [-2, 5, 2] };     // 분해 보기는 부품이 퍼지므로 더 멀리서
+const STEPS = [
+  { t: '닫힌 길', d: '5V 핀에서 나와 저항과 LED를 지나 GND 핀으로 돌아옵니다. 끊긴 곳 없이 한 바퀴 이어져야 전기가 흐릅니다.',
+    ...CAM_ALL, see: false, flow: 'trace', volt: false },
+  { t: '전류의 방향', d: '전류는 전위가 높은 5V에서 낮은 GND(0V) 쪽으로 흐른다고 약속했습니다. 5V → 저항 → LED → GND 순서입니다.',
+    ...CAM_ALL, see: false, flow: 'current', volt: false },
+  { t: '전자의 이동', d: '실제로 움직이는 것은 (−)전하를 띤 전자입니다. 전자는 전류와 반대로 GND에서 5V 쪽으로 이동합니다.',
+    cam: [5, 26, 36], tgt: [5, 2, 7], see: true, flow: 'both', volt: false },
+  { t: '저항에서의 전압강하', d: '전자가 저항 속 원자와 부딪히며 에너지를 열로 내놓습니다. 그래서 저항 양쪽의 전위가 5V와 2V로 3.0V 차이 납니다. 전자의 개수는 줄지 않습니다.',
+    cam: [10.5, 12, 18.5], tgt: [10.5, 3.6, 5.5], see: true, flow: 'electron', volt: true },
+  { t: 'LED에서의 전압강하', d: '남은 2.0V만큼의 에너지는 LED에서 빛으로 바뀝니다. LED를 지나면 전위는 0V가 됩니다.',
+    cam: [15, 12, 16], tgt: [8, 6.5, 3], see: true, flow: 'electron', volt: true },
+  { t: '정리', d: '저항 3.0V + LED 2.0V = 전원 5V. 전압강하를 모두 더하면 전원 전압과 같습니다. 전류는 회로 어디서나 13.6mA로 같습니다.',
+    ...CAM_ALL, see: false, flow: 'current', volt: true },
+];
+
+// 카메라 이동(단계가 바뀔 때 부드럽게)
+const camTween = { t: 1, p0: new THREE.Vector3(), p1: new THREE.Vector3(), q0: new THREE.Vector3(), q1: new THREE.Vector3() };
+function moveCamera(cam, tgt, instant) {
+  camTween.p0.copy(camera.position); camTween.q0.copy(controls.target);
+  camTween.q1.set(tgt[0], tgt[1], tgt[2]);
+  // 화면이 16:9보다 좁으면 그만큼 뒤로 물러나 회로 전체가 보이게 함
+  const asp = (camera.aspect > 0 && isFinite(camera.aspect)) ? camera.aspect : 16 / 9;
+  const back = Math.max(1, (16 / 9) / asp);
+  if (!isFinite(camera.position.x)) camTween.p0.set(cam[0], cam[1], cam[2]);
+  camTween.p1.set(cam[0], cam[1], cam[2]).sub(camTween.q1).multiplyScalar(back).add(camTween.q1);
+  camTween.t = instant ? 0.999 : 0;
+}
+function goStep(i, instant) {
+  state.step = Math.max(0, Math.min(STEPS.length - 1, i));
+  const s = STEPS[state.step];
+  state.see = s.see; state.flow = s.flow; state.volt = s.volt; state.explode = false;
+  moveCamera(s.cam, s.tgt, instant);
+  applyState();
+}
+
+const $ = (id) => document.getElementById(id);
+function applyState() {
+  const s = STEPS[state.step];
+  $('stepNo').textContent = (state.step + 1) + ' / ' + STEPS.length;
+  $('stepT').textContent = (state.step + 1) + '단계 · ' + s.t;
+  $('stepD').textContent = s.d;
+  $('bSee').textContent = state.see ? '겉 보기' : '속 보기';
+  $('bExp').textContent = state.explode ? '다시 합치기' : '분해하기';
+  $('bExp').classList.toggle('on', state.explode);
+  $('bVolt').classList.toggle('on', state.volt);
+  document.querySelectorAll('#bar .seg button').forEach((b) => b.classList.toggle('on', b.dataset.flow === state.flow));
+  // 전압 보기: 전위가 정해진 부품을 전위 색으로 물들임
+  for (const sh of shells) {
+    if (sh.volt === undefined) continue;
+    if (state.volt) {
+      sh.m.color.setHex(VOLT_COLOR[sh.volt]);
+      sh.m.emissive.setHex(VOLT_COLOR[sh.volt]);
+      sh.m.emissiveIntensity = 0.75;
+    } else {
+      sh.m.color.copy(sh.col);
+      sh.m.emissive.copy(sh.em);
+      sh.m.emissiveIntensity = sh.ei;
+    }
+  }
+}
+
+$('bPrev').onclick = () => goStep(state.step - 1);
+$('bNext').onclick = () => goStep(state.step + 1);
+$('bSee').onclick = () => { state.see = !state.see; applyState(); };
+$('bExp').onclick = () => {
+  state.explode = !state.explode;
+  const c = state.explode ? CAM_EXP : STEPS[state.step];
+  moveCamera(c.cam, c.tgt);
+  applyState();
+};
+$('bVolt').onclick = () => { state.volt = !state.volt; applyState(); };
+$('speed').oninput = (e) => { state.speed = parseFloat(e.target.value); };
+document.querySelectorAll('#bar .seg button').forEach((b) => {
+  b.onclick = () => {
+    state.flow = b.dataset.flow;
+    if (state.flow !== 'current') state.see = true;     // 전자는 도선 속에 있으므로 속 보기로 전환
+    applyState();
+  };
+});
+window.addEventListener('keydown', (e) => {
+  if (e.key === 'ArrowRight') goStep(state.step + 1);
+  if (e.key === 'ArrowLeft') goStep(state.step - 1);
+});
+
+// ───────────────────────── 마우스 올리면 설명 ─────────────────────────
+const ray = new THREE.Raycaster(), mouse = new THREE.Vector2(), tip = $('tip');
+renderer.domElement.addEventListener('pointermove', (e) => {
+  mouse.set(e.clientX / window.innerWidth * 2 - 1, -(e.clientY / window.innerHeight) * 2 + 1);
+  ray.setFromCamera(mouse, camera);
+  const hit = e.buttons ? null : ray.intersectObjects(pickables, false)[0];
+  if (!hit) { tip.style.display = 'none'; return; }
+  const info = hit.object.userData.info;
+  tip.innerHTML = '<b></b><span></span>';
+  tip.firstChild.textContent = info.n;
+  tip.lastChild.textContent = info.d;
+  tip.style.display = 'block';
+  tip.style.left = Math.min(e.clientX + 16, window.innerWidth - 260) + 'px';
+  tip.style.top = (e.clientY + 16) + 'px';
+});
+renderer.domElement.addEventListener('pointerleave', () => { tip.style.display = 'none'; });
+
+// ───────────────────────── 매 프레임 ─────────────────────────
+let seeK = 0, expK = 0, last = performance.now();
+function resize() {
+  renderer.setSize(window.innerWidth, window.innerHeight, false);
+  camera.aspect = window.innerWidth / (window.innerHeight || 1);
+  camera.updateProjectionMatrix();
+  // 창 크기가 바뀌면 현재 단계 구도로 다시 맞춤
+  const c = state.explode ? CAM_EXP : STEPS[state.step];
+  moveCamera(c.cam, c.tgt, true);
+}
+window.addEventListener('resize', resize);
+
+function frame(now) {
+  const dt = Math.min(0.05, (now - last) / 1000), time = now / 1000;
+  last = now;
+  const k = Math.min(1, dt * 5);
+  seeK += ((state.see ? 1 : 0) - seeK) * k;
+  expK += ((state.explode ? 1 : 0) - expK) * k;
+
+  // 속 보기: 겉면을 투명하게
+  for (const sh of shells) {
+    const op = sh.base + (sh.see * sh.base - sh.base) * seeK;
+    sh.m.opacity = op;
+    sh.m.transparent = op < 0.99 || sh.m.alphaTest > 0;
+    sh.m.depthWrite = op > 0.9;
+  }
+  // 분해 보기: 부품을 제자리에서 떼어 냄
+  for (const key in parts) {
+    parts[key].position.copy(parts[key].userData.off).multiplyScalar(expK);
+  }
+
+  const flowing = expK < 0.03;
+  electrons.visible = flowing && seeK > 0.3 && (state.flow === 'electron' || state.flow === 'both');
+  arrows.visible = flowing && (state.flow === 'current' || state.flow === 'both');
+  tracer.visible = flowing && state.flow === 'trace';
+  atoms.visible = seeK > 0.3;
+  updateFlow(dt, time);
+
+  // 저항은 열, LED는 빛
+  const pulse = 0.5 + 0.5 * Math.sin(time * 4);
+  resBodyMat.emissiveIntensity = (state.step === 3 && flowing) ? 0.35 + 0.35 * pulse : 0.08;
+  ledGlow.material.opacity = 0.75 + 0.2 * pulse;
+
+  if (camTween.t < 1) {
+    camTween.t = Math.min(1, camTween.t + dt / 1.4);
+    const e = camTween.t < 0.5 ? 2 * camTween.t * camTween.t : 1 - Math.pow(-2 * camTween.t + 2, 2) / 2;
+    camera.position.lerpVectors(camTween.p0, camTween.p1, e);
+    controls.target.lerpVectors(camTween.q0, camTween.q1, e);
+  }
+  controls.update();
+  renderer.render(scene, camera);
+  updateTags();
+  drawGraph();
+  requestAnimationFrame(frame);
+}
+
+resize();
+goStep(0, true);
+requestAnimationFrame(frame);
+</script>
+</body>
+</html>
